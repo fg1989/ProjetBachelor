@@ -38,6 +38,7 @@
 ##include "mem.isa"
 ##include "fp.isa"
 ##include "amo.isa"
+##include "vector.isa"
 
 // Include formats for nonstandard extensions
 ##include "compressed.isa"

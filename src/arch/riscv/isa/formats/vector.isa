@@ -1,0 +1,681 @@
+def bitfield VM <25>;
+def bitfield MOP <27:26>;
+def bitfield MEW <28>;
+def bitfield UMOP <24:20>;
+
+def bitfield LAST <31>;
+def bitfield PRELAST <30>;
+def bitfield END <29:25>;
+
+def template VsetvlExecute{{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        uint64_t elemCount;
+        %(op_decl)s;
+        %(op_rd)s;
+        uint64_t elemSize;
+
+        %(code)s;
+
+        int elemSizeValue;
+        switch(bits(elemSize,5,3)) {
+            case 0:
+                elemSizeValue = 1;
+                break;
+            case 1:
+                elemSizeValue = 2;
+                break;
+            case 2:
+                elemSizeValue = 4;
+                break;
+            case 3:
+                elemSizeValue = 8;
+                break;
+            default:
+                elemSizeValue = 1;
+                break;
+        }
+
+        RiscvISA::setElemSize(elemSizeValue);
+
+        int maxElem = (RiscvISA::VecSizeElem / elemSizeValue);
+
+        if(numSrcRegs() > 0 && srcRegIdx(0).isZeroReg()){
+            if(destRegIdx(0).isZeroReg()){
+                Rd = maxElem;
+            }
+            else
+            {
+                if (RiscvISA::getElemCount()<=maxElem) {
+                    Rd = RiscvISA::getElemCount();
+                }
+                else{
+                    Rd = 0;
+                }
+            }
+        }
+        else
+        {
+            if(elemCount<maxElem)
+            {
+                Rd = elemCount;
+            }
+            else
+            {
+                Rd = maxElem;
+            }
+        }
+
+        RiscvISA::setElemCount(Rd);
+
+        %(op_wb)s;
+
+        return NoFault;
+    }
+}};
+
+def format VsetvlOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VsetvlExecute.subst(iop)
+}};
+
+def template VecLoadExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Addr EA;
+        uint64_t addr;
+        uint8_t memVal;
+        %(op_decl)s;
+        Fault fault;
+        %(op_rd)s;
+
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        int segments = bits(machInst,31,29) + 1;
+
+        int stride = segments * elemSize;
+
+        %(code)s;
+
+        int vectorIndex = bits(machInst,11,7);
+
+        for(int i = 0; i < segments; i++){
+            uint8_t* vector = RiscvISA::getVectorRegister(vectorIndex);
+
+            uint64_t currentAddr = addr;
+            int currentElem = 0;
+
+            for(int j = 0; j < elemCount; j++)
+            {
+                uint64_t localAddr = currentAddr;
+
+                for (int k = 0; k < elemSize; k++)
+                {
+                    EA = localAddr;
+                    fault = readMemAtomic(xc, traceData, EA, memVal, 0);
+                    if (fault != NoFault) {
+                        return fault;
+                    }
+                    vector[currentElem] = memVal;
+                    currentElem++;
+                    localAddr++;
+                }
+
+                currentAddr += stride;
+            }
+
+            vectorIndex++;
+            addr+=elemSize;
+        }
+        return NoFault;
+    }
+}};
+
+def template VecStoreExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Addr EA;
+        uint64_t addr;
+        uint8_t memVal;
+        Fault fault;
+        %(op_decl)s;
+
+        %(op_rd)s;
+
+
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        int segments = bits(machInst,31,29) + 1;
+
+        int stride = segments * elemSize;
+
+        %(code)s;
+
+        int vectorIndex = bits(machInst,11,7);
+        for(int i = 0; i < segments; i++){
+            uint8_t* vector = RiscvISA::getVectorRegister(vectorIndex);
+
+            int64_t currentAddr = addr;
+            int currentElem = 0;
+
+            for(int j = 0; j < elemCount; j++)
+            {
+                uint64_t localAddr = currentAddr;
+
+                for (int k = 0; k < elemSize; k++)
+                {
+                    EA = localAddr;
+                    memVal = vector[currentElem];
+                    fault = writeMemAtomic(xc, traceData, memVal, EA, 0, nullptr);
+                    if (fault != NoFault) {
+                        return fault;
+                    }
+                    currentElem++;
+                    localAddr++;
+                }
+
+                currentAddr += stride;
+            }
+
+            vectorIndex++;
+            addr+=elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecLoadOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecLoadExecute.subst(iop)
+}};
+
+def format VecStoreOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecStoreExecute.subst(iop)
+}};
+
+def template VecVecExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* secondVec = RiscvISA::getVectorRegister(bits(machInst, 19, 15));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t firstElem;
+            int64_t secondElem;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                firstElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                firstElem = 0;
+            }
+
+            if(secondVec[index + elemSize - 1] & 128) {
+                secondElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                secondElem = 0;
+            }
+
+            int64_t result;
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                firstElem = firstElem << 8;
+                secondElem = secondElem << 8;
+                firstElem += firstVec[index + j];
+                secondElem += secondVec[index + j];
+            }
+
+            %(code)s;
+
+            for(int j = 0; j < elemSize; j++)
+            {
+                resultVec[index+j] = (result & 255);
+                result = result >> 8;
+            }
+
+            index += elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecVecOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecVecExecute.subst(iop)
+}};
+
+def template VecRegExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t firstElem;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                firstElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                firstElem = 0;
+            }
+
+            int64_t result;
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                firstElem = firstElem << 8;
+                firstElem += firstVec[index + j];
+            }
+
+            %(code)s;
+
+            for(int j = 0; j < elemSize; j++)
+            {
+                resultVec[index+j] = (result & 255);
+                result = result >> 8;
+            }
+
+            index += elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecRegOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecRegExecute.subst(iop)
+}};
+
+def template VecImmExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        int64_t secondElem = bits(machInst, 19, 15);
+
+        if(secondElem & 16){
+            secondElem = secondElem | 0xFFFFFFFFFFFFFFE0;
+        }
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t firstElem;
+            int64_t result;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                firstElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                firstElem = 0;
+            }
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                firstElem = firstElem << 8;
+                firstElem += firstVec[index + j];
+            }
+
+            %(code)s;
+
+            for(int j = 0; j < elemSize; j++)
+            {
+                resultVec[index+j] = (result & 255);
+                result = result >> 8;
+            }
+
+            index += elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecImmOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecImmExecute.subst(iop)
+}};
+
+def template VecVecMultAddExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* secondVec = RiscvISA::getVectorRegister(bits(machInst, 19, 15));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t firstElem;
+            int64_t secondElem;
+            int64_t resultElem;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                firstElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                firstElem = 0;
+            }
+
+            if(secondVec[index + elemSize - 1] & 128) {
+                secondElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                secondElem = 0;
+            }
+
+            if(resultVec[index + elemSize - 1] & 128) {
+                resultElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                resultElem = 0;
+            }
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                firstElem = firstElem << 8;
+                secondElem = secondElem << 8;
+                resultElem = resultElem << 8;
+                firstElem += firstVec[index + j];
+                secondElem += secondVec[index + j];
+                resultElem += resultVec[index + j];
+            }
+
+            %(code)s;
+
+            for(int j = 0; j < elemSize; j++)
+            {
+                resultVec[index+j] = (resultElem & 255);
+                resultElem = resultElem >> 8;
+            }
+
+            index += elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecVecMultAddOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecVecMultAddExecute.subst(iop)
+}};
+
+def template VecRegMultAddExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t firstElem;
+            int64_t resultElem;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                firstElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                firstElem = 0;
+            }
+
+            if(resultVec[index + elemSize - 1] & 128) {
+                resultElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                resultElem = 0;
+            }
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                firstElem = firstElem << 8;
+                resultElem = resultElem << 8;
+                firstElem += firstVec[index + j];
+                resultElem += resultVec[index + j];
+            }
+
+            %(code)s;
+
+            for(int j = 0; j < elemSize; j++)
+            {
+                resultVec[j] = (resultElem & 255);
+                resultElem = resultElem >> 8;
+            }
+
+            index += elemSize;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecRegMultAddOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecRegMultAddExecute.subst(iop)
+}};
+
+def template VecTransfertStoreExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+
+        if(elemCount == 0) {
+            return NoFault;
+        }
+
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        int64_t vecValue;
+
+        %(code)s;
+
+        for(int j = 0; j < elemSize; j++)
+        {
+            resultVec[j] = (vecValue & 255);
+            vecValue = vecValue >> 8;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecTransfertStoreOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecTransfertStoreExecute.subst(iop)
+}};
+
+def template VecTransfertExtractExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+
+        if(elemCount == 0) {
+            return NoFault;
+        }
+
+        int elemSize =  RiscvISA::getElemSize();
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        int64_t vecValue;
+
+        if(firstVec[elemSize - 1] & 128) {
+            vecValue = 0xFFFFFFFFFFFFFFFF;
+        } else {
+            vecValue = 0;
+        }
+
+        for(int j = (elemSize-1); j >= 0; j--)
+        {
+            vecValue = vecValue << 8;
+            vecValue += firstVec[j];
+        }
+
+        %(code)s;
+
+        %(op_wb)s;
+
+        return NoFault;
+    }
+}};
+
+def format VecTransfertExtractOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecTransfertExtractExecute.subst(iop)
+}};
+
+def template VecReduceExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        int elemCount = RiscvISA::getElemCount();
+        int elemSize =  RiscvISA::getElemSize();
+
+        if(elemCount==0) {
+            return NoFault;
+        }
+
+        uint8_t* firstVec = RiscvISA::getVectorRegister(bits(machInst, 24, 20));
+        uint8_t* secondVec = RiscvISA::getVectorRegister(bits(machInst, 19, 15));
+        uint8_t* resultVec = RiscvISA::getVectorRegister(bits(machInst, 11, 7));
+
+        int64_t accumulator;
+
+        if(secondVec[elemSize - 1] & 128) {
+            accumulator = 0xFFFFFFFFFFFFFFFF;
+        } else {
+            accumulator = 0;
+        }
+
+        for(int j = (elemSize-1); j >= 0; j--)
+        {
+            accumulator = accumulator << 8;
+            accumulator += secondVec[j];
+        }
+
+        int index = 0;
+        for(int i = 0; i < elemCount; i++)
+        {
+            int64_t currentElem;
+
+            if(firstVec[index + elemSize - 1] & 128) {
+                currentElem = 0xFFFFFFFFFFFFFFFF;
+            } else {
+                currentElem = 0;
+            }
+
+            for(int j = (elemSize-1); j >= 0; j--)
+            {
+                currentElem = currentElem << 8;
+                currentElem += firstVec[index + j];
+            }
+
+            %(code)s;
+
+            index += elemSize;
+        }
+
+        for(int j = 0; j < elemSize; j++)
+        {
+            resultVec[j] = (accumulator & 255);
+            accumulator = accumulator >> 8;
+        }
+
+        return NoFault;
+    }
+}};
+
+def format VecReduceOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'RegOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = VecReduceExecute.subst(iop)
+}};

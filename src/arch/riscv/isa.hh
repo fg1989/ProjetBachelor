@@ -66,21 +66,22 @@ class Clint;
 namespace RiscvISA
 {
 
-enum PrivilegeMode {
+  enum PrivilegeMode
+  {
     PRV_U = 0,
     PRV_S = 1,
     PRV_M = 3
-};
+  };
 
-class ISA : public SimObject
-{
+  class ISA : public SimObject
+  {
   protected:
     std::vector<RegVal> miscRegFile;
 
     bool hpmCounterEnabled(int counter) const;
 
     // System ISA belongs to.
-    RiscvSystem * system;
+    RiscvSystem *system;
 
     // Status bits
     const uint64_t SSTATUS_MASK = 0x80000003000de133;
@@ -113,8 +114,7 @@ class ISA : public SimObject
     const Params *params() const;
 
     ISA(Params *p);
-};
-
+  };
 } // namespace RiscvISA
 
 #endif // __ARCH_RISCV_ISA_HH__

@@ -402,6 +402,23 @@ decode QUADRANT default Unknown::unknown() {
                     Fd_bits = Mem;
                 }}, inst_flags=FloatMemReadOp);
             }
+            format VecLoadOp {
+                0, 5, 6, 7 : decode VM {
+                    0x1 : decode MEW {
+                        0x0 : decode MOP {
+                            0x0: decode UMOP {
+                                0x0: LoadV({{
+                                    addr = Rs1_sd;
+                                }});
+                            }
+                            0x2: LoadVS({{
+                                addr = Rs1_sd;
+                                stride = Rs2_sd;
+                            }});
+                        }
+                    }
+                }
+            }
         }
 
         0x03: decode FUNCT3 {
@@ -491,6 +508,23 @@ decode QUADRANT default Unknown::unknown() {
         }
 
         0x09: decode FUNCT3 {
+            format VecStoreOp {
+                0, 5, 6, 7 : decode VM {
+                    0x1: decode MEW {
+                        0x0 : decode MOP{
+                            0x0: decode UMOP {
+                                0x0: StoreV({{
+                                    addr = Rs1_sd;
+                                }});
+                            }
+                            0x2: StoreVS({{
+                                addr = Rs1_sd;
+                                stride = Rs2_sd;
+                            }});
+                        }
+                    }
+                }
+            }
             format Store {
                 0x2: fsw({{
                     Mem_uw = (uint32_t)Fs2_bits;
@@ -649,6 +683,7 @@ decode QUADRANT default Unknown::unknown() {
                 }}, mem_flags=ATOMIC_RETURN_OP);
             }
         }
+
         0x0c: decode FUNCT3 {
             format ROp {
                 0x0: decode FUNCT7 {
@@ -1691,6 +1726,217 @@ decode QUADRANT default Unknown::unknown() {
                 0x79: fmv_d_x({{
                     Fd_bits = Rs1;
                 }}, FloatCvtOp);
+            }
+        }
+
+        0x15: decode FUNCT3 {
+            format VecVecOp {
+                0x0: decode FUNCT7 {
+                    0x1:vAddVecVec({{
+                        result = firstElem + secondElem;
+                    }});
+                    0x5:vSubVecVec({{
+                        result = firstElem - secondElem;
+                    }});
+                    0xB:vMinVecVec({{
+                        if(firstElem < secondElem) {
+                            result = firstElem;
+                        } else {
+                            result = secondElem;
+                        }
+                    }});
+                    0xF:vMaxVecVec({{
+                        if(firstElem > secondElem) {
+                            result = firstElem;
+                        } else {
+                            result = secondElem;
+                        }
+                    }});
+                    0x13:vAndVecVec({{
+                        result = firstElem & secondElem;
+                    }});
+                    0x15:vOrVecVec({{
+                        result = firstElem | secondElem;
+                    }});
+                    0x17:vXorVecVec({{
+                        result = firstElem ^ secondElem;
+                    }});
+                }
+            }
+
+            0x2: decode FUNCT7 {
+                format VecReduceOp {
+                    0x1: vRedSum({{
+                        accumulator = accumulator + currentElem;
+                    }});
+                    0x3: vRedAnd({{
+                        accumulator = accumulator & currentElem;
+                    }});
+                    0x5: vRedOr({{
+                        accumulator = accumulator | currentElem;
+                    }});
+                    0x7: vRedXor({{
+                        accumulator = accumulator ^ currentElem;
+                    }});
+                    0x11: vRedMin({{
+                        if(currentElem < accumulator) {
+                            accumulator = currentElem;
+                        }
+                    }});
+                    0x15: vRedMax({{
+                        if(currentElem > accumulator) {
+                            accumulator = currentElem;
+                        }
+                    }});
+                }
+                format VecTransfertExtractOp {
+                    0x21: decode RS1 {
+                        0x0: vExtractVal({{
+                            Rd_sd = vecValue;
+                        }});
+                    }
+                }
+                format VecVecOp {
+                    0x43:vDivVecVec({{
+                        result = firstElem / secondElem;
+                    }});
+                    0x47:vRemVecVec({{
+                        result = firstElem % secondElem;
+                    }});
+                    0x4B:vMulVecVec({{
+                        result = firstElem * secondElem;
+                    }});
+                }
+                format VecVecMultAddOp {
+                    0x53: vMaddVecVec({{
+                        resultElem = firstElem + (secondElem * resultElem);
+                    }});
+                    0x57: vNmsubVecVec({{
+                        resultElem = firstElem - (secondElem * resultElem);
+                    }});
+                    0x5B: vMaccVecVec({{
+                        resultElem = resultElem + (secondElem * firstElem);
+                    }});
+                    0x5F: vNmsacVecVec({{
+                        resultElem = resultElem + (secondElem * firstElem);
+                    }});
+                }
+            }
+
+            format VecImmOp {
+                0x3: decode FUNCT7 {
+                    0x1:vAddVecImm({{
+                        result = firstElem + secondElem;
+                    }});
+                    0x7:vRSubVecImm({{
+                        result = secondElem - firstElem;
+                    }});
+                    0x13:vAndVecImm({{
+                        result = firstElem & secondElem;
+                    }});
+                    0x15:vOrVecImm({{
+                        result = firstElem | secondElem;
+                    }});
+                    0x17:vXorVecImm({{
+                        result = firstElem ^ secondElem;
+                    }});
+                }
+            }
+
+            format VecRegOp {
+                0x4: decode FUNCT7 {
+                    0x1:vAddVecReg({{
+                        result = firstElem + Rs1_sd;
+                    }});
+                    0x5:vSubVecReg({{
+                        result = firstElem - Rs1_sd;
+                    }});
+                    0x7:vRSubVecReg({{
+                        result = Rs1_sd - firstElem;
+                    }});
+                    0xB:vMinVecReg({{
+                        if(firstElem < Rs1_sd) {
+                            result = firstElem;
+                        } else {
+                            result = Rs1_sd;
+                        }
+                    }});
+                    0xF:vMaxVecReg({{
+                        if(firstElem > Rs1_sd) {
+                            result = firstElem;
+                        } else {
+                            result = Rs1_sd;
+                        }
+                    }});
+                    0x13:vAndVecReg({{
+                        result = firstElem & Rs1_sd;
+                    }});
+                    0x15:vOrVecReg({{
+                        result = firstElem | Rs1_sd;
+                    }});
+                    0x17:vXorVecReg({{
+                        result = firstElem ^ Rs1_sd;
+                    }});
+                }
+            }
+
+            0x6: decode FUNCT7 {
+                format VecTransfertStoreOp {
+                    0x21: decode RS2 {
+                        0x0: vStoreVal({{
+                            vecValue = Rs1_sd;
+                        }});
+                    }
+                }
+                format VecRegOp {
+                    0x43:vDivVecReg({{
+                        result = firstElem / Rs1_sd;
+                    }});
+                    0x47:vRemVecReg({{
+                        result = firstElem % Rs1_sd;
+                    }});
+                    0x4B:vMulVecReg({{
+                        result = firstElem * Rs1_sd;
+                    }});
+                }
+                format VecRegMultAddOp {
+                    0x53: vMaddVecReg({{
+                        resultElem = firstElem + (Rs1_sd * resultElem);
+                    }});
+                    0x57: vNmsubVecReg({{
+                        resultElem = firstElem - (Rs1_sd * resultElem);
+                    }});
+                    0x5B: vMaccVecReg({{
+                        resultElem = resultElem + (Rs1_sd * firstElem);
+                    }});
+                    0x5F: vNmsacVecReg({{
+                        resultElem = resultElem + (Rs1_sd * firstElem);
+                    }});
+                }
+            }
+
+            format VsetvlOp {
+                0x7: decode LAST {
+                    0x0: Vsetvli({{
+                        elemSize = bits(machInst,30,20);
+                        elemCount = Rs1_sd;
+                        Rd = 0; // Required for the generator to set up the write back
+                        }});
+                    0x1: decode PRELAST {
+                        0x0: decode END {
+                            0x0 : Vsetvl({{
+                                elemSize = Rs2_sd;
+                                elemCount = Rs1_sd;
+                                Rd = 0; // Required for the generator to set up the write back
+                            }});
+                        }
+                        0x1: Vsetivli({{
+                            elemSize = bits(machInst,29,20);
+                            elemCount = bits(machInst,19,15);
+                            Rd = 0; // Required for the generator to set up the write back
+                        }});
+                    }
+                }
             }
         }
 
