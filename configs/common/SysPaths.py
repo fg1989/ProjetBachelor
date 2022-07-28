@@ -50,7 +50,7 @@ class PathSearchFunc(object):
             try:
                 paths = os.environ['M5_PATH'].split(':')
             except KeyError:
-                paths = [ '/dist/m5/system', '/n/poolfs/z/dist/m5/system', '../fullSystemImages' ]
+                paths = [ '/dist/m5/system', '/n/poolfs/z/dist/m5/system', '/home/gXR5/full_system_images' ]
 
             # expand '~' and '~user' in paths
             paths = map(os.path.expanduser, paths)
